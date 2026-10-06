@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>LearnHub Portal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#f5f6fa;--card:#fff;--tx:#1d2433;--mu:#667;--ac:#3b5bdb;--bd:#dde1ea;--hl:rgba(255,226,0,.45);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151c;--card:#1c212c;--tx:#e8ebf2;--mu:#98a;--ac:#748ffc;--bd:#2c3342}}
+:root[data-theme="dark"]{--bg:#12151c;--card:#1c212c;--tx:#e8ebf2;--mu:#98a;--ac:#748ffc;--bd:#2c3342}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+.wrap{max-width:1000px;margin:0 auto;padding:20px}
+h1,h2,h3{margin:.2em 0}.mu{color:var(--mu);font-size:.9rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:24px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:22px}
+button,.btn{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:9px 14px;font-size:.95rem;cursor:pointer}
+button.alt{background:transparent;color:var(--ac);border:1px solid var(--ac)}button.red{background:#e03131}
+input[type=password],input[type=text]{width:100%;padding:9px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);margin:8px 0}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--bd)}
+.item:last-child{border:0}.item span{overflow-wrap:anywhere}.row{display:flex;gap:8px;flex-wrap:wrap}
+.tabs{display:flex;gap:8px;margin:14px 0}.tabs button{background:var(--card);color:var(--tx);border:1px solid var(--bd)}.tabs button.on{background:var(--ac);color:#fff}
+video{width:100%;max-height:70vh;background:#000;border-radius:10px}
+.err{color:#e03131;font-size:.9rem;min-height:1.2em}
+.pg{position:relative;margin:12px auto;width:fit-content;max-width:100%;border:1px solid var(--bd);background:#fff;user-select:none}
+.pg canvas{display:block;max-width:100%;height:auto}.ov{position:absolute;inset:0;cursor:crosshair;touch-action:none}
+.hl{position:absolute;background:var(--hl);mix-blend-mode:multiply;cursor:pointer}
+.pgbar{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 0;flex-wrap:wrap}
+.rv{font-size:.85rem;padding:6px 10px}.rv.on{background:#f59f00}
+.modal{margin-top:16px}.pdfarea{overflow-x:auto}
+@media print{body{display:none}}
+</style></head><body><div class="wrap" id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+const PW='CONCATENATION',app=document.getElementById('app');
+let role=null,tab='video',urls=[];
+
+/* ---------- IndexedDB (stores uploaded files in the browser) ---------- */
+const dbp=new Promise((res,rej)=>{try{const r=indexedDB.open('learnhub',1);r.onupgradeneeded=()=>r.result.createObjectStore('f',{keyPath:'id'});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}catch(e){rej(e)}});
+const tx=async(m,fn)=>{const d=await dbp;return new Promise((res,rej)=>{const t=d.transaction('f',m),s=t.objectStore('f'),q=fn(s);t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error)})};
+const all=()=>tx('readonly',s=>s.getAll()).then(a=>(a||[]).sort((x,y)=>y.date-x.date));
+const get=id=>tx('readonly',s=>s.get(id));
+const ls={get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- Login ---------- */
+function login(){role=null;app.innerHTML=`<h1>📚 LearnHub</h1><p class="mu">Choose how you want to enter.</p>
+<div class="cards"><div class="card"><h2>Tutor Login</h2><p class="mu">Upload and delete videos and notes.</p>
+<input type="password" id="pw" placeholder="Tutor password"><div class="err" id="err"></div><button id="tb">Enter tutor portal</button></div>
+<div class="card"><h2>Student Login</h2><p class="mu">Watch videos, read and highlight notes, mark topics for review.</p><button id="sb">Enter as student</button></div></div>`;
+const go=()=>{if(document.getElementById('pw').value===PW){role='tutor';portal()}else document.getElementById('err').textContent='Incorrect password.'};
+document.getElementById('tb').onclick=go;document.getElementById('pw').onkeydown=e=>e.key==='Enter'&&go();
+document.getElementById('sb').onclick=()=>{role='student';portal()}}
+
+/* ---------- Portal (tutor + student) ---------- */
+async function portal(){urls.forEach(URL.revokeObjectURL);urls=[];
+let files=[];try{files=await all()}catch(e){}
+const list=files.filter(f=>f.kind===tab);
+app.innerHTML=`<div class="top"><h1>${role==='tutor'?'🎓 Tutor Portal':'🧑‍🎓 Student Portal'}</h1><button class="alt" id="out">Log out</button></div>
+${role==='tutor'?`<div class="card" style="margin-top:14px"><h3>Upload</h3><p class="mu">MP4 videos or PDF notes.</p>
+<div class="row"><input type="file" id="fi" accept="video/mp4,application/pdf" multiple><button id="up">Upload</button></div><div class="err" id="ue"></div></div>`:''}
+<div class="tabs"><button data-t="video" class="${tab==='video'?'on':''}">🎬 Videos</button><button data-t="pdf" class="${tab==='pdf'?'on':''}">📄 Notes (PDF)</button></div>
+<div class="card" id="list">${list.length?list.map(f=>`<div class="item"><span>${esc(f.name)}</span><div class="row"><button data-o="${f.id}">${f.kind==='video'?'Watch':'Open'}</button>${role==='tutor'?`<button class="red" data-d="${f.id}">Delete</button>`:''}</div></div>`).join(''):'<p class="mu">Nothing here yet.</p>'}</div>
+<div class="modal" id="view"></div>`;
+document.getElementById('out').onclick=login;
+app.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;portal()});
+app.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>open(b.dataset.o));
+app.querySelectorAll('[data-d]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this file?')){await tx('readwrite',s=>s.delete(b.dataset.d));portal()}});
+if(role==='tutor')document.getElementById('up').onclick=async()=>{const fs=[...document.getElementById('fi').files],er=document.getElementById('ue');er.textContent='';
+if(!fs.length){er.textContent='Choose a file first.';return}
+for(const f of fs){const isV=f.type==='video/mp4'||/\.mp4$/i.test(f.name),isP=f.type==='application/pdf'||/\.pdf$/i.test(f.name);
+if(!isV&&!isP){er.textContent=`"${f.name}" skipped: only MP4 or PDF allowed.`;continue}
+try{await tx('readwrite',s=>s.put({id:crypto.randomUUID(),name:f.name,kind:isV?'video':'pdf',blob:f,date:Date.now()}))}catch(e){er.textContent='Upload failed (storage full?).'}}
+tab=fs.some(f=>/pdf/i.test(f.type+f.name))&&!fs.some(f=>/mp4/i.test(f.type+f.name))?'pdf':tab;portal()}}
+
+async function open(id){const f=await get(id),v=document.getElementById('view');v.scrollIntoView({behavior:'smooth'});
+if(f.kind==='video'){const u=URL.createObjectURL(f.blob);urls.push(u);
+v.innerHTML=`<div class="card"><h3>${esc(f.name)}</h3><video src="${u}" controls controlsList="nodownload noremoteplayback" disablePictureInPicture playsinline></video></div>`;
+v.querySelector('video').oncontextmenu=e=>e.preventDefault();return}
+viewPdf(f,v)}
+
+/* ---------- PDF viewer with highlight + mark for review ---------- */
+async function viewPdf(f,v){
+v.innerHTML=`<div class="card"><h3>${esc(f.name)}</h3><p class="mu">Drag on a page to highlight. Click a highlight to remove it. Use “Mark for review” to flag a page and add a topic.</p><div id="rvl" class="mu"></div><div class="pdfarea" id="pa">Loading…</div></div>`;
+const pa=document.getElementById('pa');
+if(!window.pdfjsLib){pa.textContent='PDF engine failed to load.';return}
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const hk='hl:'+f.id,rk='rv:'+f.id;let H=ls.get(hk,{}),R=ls.get(rk,{});
+const sumR=()=>{const k=Object.keys(R);document.getElementById('rvl').innerHTML=k.length?'<b>Review list:</b> '+k.sort((a,b)=>a-b).map(p=>`Page ${p}${R[p]?' – '+esc(R[p]):''}`).join(' • '):''};
+try{const pdf=await pdfjsLib.getDocument({data:await f.blob.arrayBuffer()}).promise;pa.innerHTML='';sumR();
+for(let n=1;n<=pdf.numPages;n++){const pg=await pdf.getPage(n),vp=pg.getViewport({scale:1.4}),c=document.createElement('canvas');
+c.width=vp.width;c.height=vp.height;await pg.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+const bar=document.createElement('div');bar.className='pgbar';bar.innerHTML=`<span class="mu">Page ${n} of ${pdf.numPages}</span>`;
+const rb=document.createElement('button');rb.className='rv'+(R[n]!==undefined?' on':'');rb.textContent=R[n]!==undefined?'★ Marked for review':'☆ Mark for review';
+rb.onclick=()=>{if(R[n]!==undefined){delete R[n];rb.className='rv';rb.textContent='☆ Mark for review'}else{R[n]=(prompt('Topic / note for review (optional):')||'').trim();rb.className='rv on';rb.textContent='★ Marked for review'}ls.set(rk,R);sumR()};
+bar.appendChild(rb);
+const w=document.createElement('div');w.className='pg';const ov=document.createElement('div');ov.className='ov';w.append(c,ov);
+w.oncontextmenu=e=>e.preventDefault();
+const draw=()=>{ov.innerHTML='';(H[n]||[]).forEach((r,i)=>{const d=document.createElement('div');d.className='hl';d.style.cssText=`left:${r[0]*100}%;top:${r[1]*100}%;width:${r[2]*100}%;height:${r[3]*100}%`;
+d.onpointerdown=e=>{e.stopPropagation()};d.onclick=e=>{e.stopPropagation();H[n].splice(i,1);ls.set(hk,H);draw()};ov.appendChild(d)})};draw();
+let st=null,tmp=null;const pos=e=>{const b=ov.getBoundingClientRect();return[Math.min(1,Math.max(0,(e.clientX-b.left)/b.width)),Math.min(1,Math.max(0,(e.clientY-b.top)/b.height))]};
+ov.onpointerdown=e=>{st=pos(e);tmp=document.createElement('div');tmp.className='hl';ov.appendChild(tmp);ov.setPointerCapture(e.pointerId)};
+ov.onpointermove=e=>{if(!st)return;const p=pos(e);tmp.style.cssText=`left:${Math.min(st[0],p[0])*100}%;top:${Math.min(st[1],p[1])*100}%;width:${Math.abs(p[0]-st[0])*100}%;height:${Math.abs(p[1]-st[1])*100}%`};
+ov.onpointerup=e=>{if(!st)return;const p=pos(e),r=[Math.min(st[0],p[0]),Math.min(st[1],p[1]),Math.abs(p[0]-st[0]),Math.abs(p[1]-st[1])];st=null;if(r[2]>.01&&r[3]>.005){(H[n]=H[n]||[]).push(r);ls.set(hk,H)}draw()};
+pa.append(bar,w)}}catch(e){pa.textContent='Could not open this PDF.'}}
+
+/* block save/print shortcuts for students */
+addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&['s','p'].includes(e.key.toLowerCase())&&role==='student')e.preventDefault()});
+login();
+</script></body></html>
